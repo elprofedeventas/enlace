@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ENLACE - tokens de tema. Oscuro por defecto (data-theme="oscuro"); claro al
+   cambiar el atributo. La app se pinta con utilidades Tailwind + estas vars. */
+:root {
+  --enlace-bg: #160f17;
+  --enlace-surface: #221624;
+  --enlace-surface-2: #2e1f31;
+  --enlace-border: #3d2b41;
+  --enlace-text: #f6eaf2;
+  --enlace-text-soft: #c2a8c0;
+  --enlace-primary: #f13063;
+}
+
+:root[data-theme='claro'] {
+  --enlace-bg: #fdf7fa;
+  --enlace-surface: #ffffff;
+  --enlace-surface-2: #fbeef3;
+  --enlace-border: #f0d8e2;
+  --enlace-text: #2a1722;
+  --enlace-text-soft: #7a5d6c;
+  --enlace-primary: #bb0c43;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--enlace-bg);
+  color: var(--enlace-text);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Respeta el notch en moviles. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

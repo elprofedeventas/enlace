@@ -1,0 +1,12 @@
+// ENLACE - raiz de la app: provee auth y monta el router.
+
+import { AuthProvider } from './contexts/AuthContext';
+import { AppRouter } from './routes/AppRouter';
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRouter />
+    </AuthProvider>
+  );
+}

@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =====================================================================
+    //  ENLACE - reglas multi-tenant. El TENANT es el EVENTO (no el uid). La
+    //  seguridad la dan estas reglas + los custom claims { operador, eventos[] },
+    //  NUNCA el cliente. Modelo de 3 documentos por boda:
+    //    - eventos/{id}          -> GESTION (privado: ownerUids, plan, etc.)
+    //    - publicos/{id}         -> PROYECCION publica de la invitacion (get-only)
+    //    - eventos/{id}/rsvps/*  -> respuestas del invitado (escritura publica)
+    //  id == slug (la misma llave en todas partes).
+    //
+    //  El invitado NO es identidad: escribe su RSVP sin login. Se admite SOLO
+    //  bajo App Check enforced (consola, fuera de estas reglas) + validacion
+    //  estricta de forma aqui. Default-deny al final.
+    // =====================================================================
+
+    function isAuth()      { return request.auth != null; }
+    function isOperador()  { return isAuth() && request.auth.token.operador == true; }
+    // Owner = uno de los novios del evento (uid en ownerUids del doc de gestion).
+    function esOwnerDe(d)  { return isAuth() && (request.auth.uid in d.ownerUids); }
+    function eventoData(eventoId) {
+      return get(/databases/$(database)/documents/eventos/$(eventoId)).data;
+    }
+    function publicoData(eventoId) {
+      return get(/databases/$(database)/documents/publicos/$(eventoId)).data;
+    }
+
+    // ---- validacion de forma del documento de GESTION ----
+    // hasOnly cierra la puerta a campos no modelados (incluido un owner que
+    // intente inyectar basura). El whitelist debe casar con services/eventos.ts.
+    function eventoFormaValida(d, eventoId) {
+      return d.keys().hasOnly([
+        'eventoId', 'slug', 'novios', 'fecha', 'lugar', 'mensajeInvitacion',
+        'portadaUrl', 'paleta', 'ownerUids', 'plan', 'planRenovacion', 'acceso',
+        'maxAcompanantesDefault', 'estado', 'createdBy', 'createdAt',
+      ])
+        && d.eventoId == eventoId
+        && d.slug is string && d.slug.size() >= 3 && d.slug.size() <= 40
+        && d.estado in ['borrador', 'publicado', 'post_evento', 'archivado']
+        && d.ownerUids is list && d.ownerUids.size() <= 10
+        && d.novios is map
+        && d.mensajeInvitacion is string && d.mensajeInvitacion.size() <= 2000
+        && d.maxAcompanantesDefault is int
+        && d.maxAcompanantesDefault >= 0 && d.maxAcompanantesDefault <= 20;
+    }
+    // Campos sellados (inmutables) tras la creacion.
+    function eventoSellado() {
+      let n = request.resource.data;
+      let o = resource.data;
+      return n.slug == o.slug && n.eventoId == o.eventoId && n.createdAt == o.createdAt;
+    }
+    // Campos que SOLO el operador puede cambiar (control de acceso y plan/dinero).
+    // Un owner (novio) edita el contenido de su boda, nunca esto.
+    function camposOperadorIntactos() {
+      let n = request.resource.data;
+      let o = resource.data;
+      return n.ownerUids == o.ownerUids
+        && n.plan == o.plan
+        && n.planRenovacion == o.planRenovacion
+        && n.acceso == o.acceso
+        && n.createdBy == o.createdBy;
+    }
+
+    match /eventos/{eventoId} {
+      allow get, list: if isOperador() || esOwnerDe(resource.data);
+      allow create: if isOperador()
+                    && eventoFormaValida(request.resource.data, eventoId)
+                    && request.resource.data.createdAt == request.time;
+      // El operador edita cualquier campo (salvo los sellados estructurales).
+      allow update: if isOperador()
+                    && eventoFormaValida(request.resource.data, eventoId)
+                    && eventoSellado();
+      // El owner (novio) solo edita el contenido de SU boda: ownerUids/plan/
+      // planRenovacion/acceso quedan sellados para el. (Panel de novios = roadmap.)
+      allow update: if esOwnerDe(resource.data)
+                    && eventoFormaValida(request.resource.data, eventoId)
+                    && eventoSellado()
+                    && camposOperadorIntactos();
+      allow delete: if isOperador();
+
+      // ---- rsvps : escritura PUBLICA del invitado (sin login) ----
+      // La unica barrera real son estas reglas + App Check. Se valida contra la
+      // proyeccion publica (estado publicado + tope de acompanantes). Inmutable.
+      function rsvpValido(eventoId) {
+        let d = request.resource.data;
+        let pub = publicoData(eventoId);
+        return pub.estado == 'publicado'
+          && d.keys().hasOnly([
+            'nombre', 'asistencia', 'numAcompanantes', 'mensaje',
+            'aceptoPolitica', 'politicaVersion', 'createdAt',
+          ])
+          && d.nombre is string && d.nombre.size() >= 1 && d.nombre.size() <= 120
+          && d.asistencia in ['confirmado', 'declinado']
+          && d.numAcompanantes is int
+          && d.numAcompanantes >= 0
+          && d.numAcompanantes <= pub.maxAcompanantesDefault
+          && (!('mensaje' in d) || (d.mensaje is string && d.mensaje.size() <= 500))
+          && d.aceptoPolitica == true
+          && d.politicaVersion is string && d.politicaVersion.size() <= 20
+          && d.createdAt == request.time;
+      }
+      match /rsvps/{rsvpId} {
+        allow read, list: if isOperador() || esOwnerDe(eventoData(eventoId));
+        allow create: if rsvpValido(eventoId);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- publicos/{eventoId} : proyeccion PUBLICA (landing) ----
+    // Lectura por id para cualquiera (App Check enforce a nivel plataforma).
+    // NUNCA `list` (no se enumeran bodas). Solo el operador la escribe en v0.
+    // hasOnly es CRITICO aqui: este doc es `get` publico, cualquier campo extra
+    // que el operador inyecte se filtraria al invitado. El whitelist casa con
+    // proyeccionPublica() en services/eventos.ts.
+    function publicoFormaValida(d, eventoId) {
+      return d.keys().hasOnly([
+        'eventoId', 'slug', 'novios', 'fecha', 'lugar', 'mensajeInvitacion',
+        'portadaUrl', 'paleta', 'maxAcompanantesDefault', 'estado',
+      ])
+        && d.eventoId == eventoId
+        && d.estado in ['borrador', 'publicado', 'post_evento', 'archivado']
+        && d.novios is map
+        && d.mensajeInvitacion is string && d.mensajeInvitacion.size() <= 2000
+        && d.maxAcompanantesDefault is int
+        && d.maxAcompanantesDefault >= 0 && d.maxAcompanantesDefault <= 20;
+    }
+    match /publicos/{eventoId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isOperador()
+                            && publicoFormaValida(request.resource.data, eventoId);
+      allow delete: if isOperador();
+    }
+
+    // =====================================================================
+    //  Cualquier otra ruta: denegada explicitamente.
+    // =====================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

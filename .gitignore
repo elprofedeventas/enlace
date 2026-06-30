@@ -1,0 +1,24 @@
+# dependencias
+node_modules
+.pnpm-store
+
+# build
+dist
+dev-dist
+*.tsbuildinfo
+
+# entorno / secretos (nunca al repo)
+.env
+.env.*
+!.env.example
+
+# firebase admin / credenciales
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+
+# vercel
+.vercel
+
+# logs / temporales
+*.log
+.DS_Store
