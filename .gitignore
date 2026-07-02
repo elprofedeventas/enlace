@@ -22,3 +22,5 @@ serviceAccount*.json
 # logs / temporales
 *.log
 .DS_Store
+
+.vercel

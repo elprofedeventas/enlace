@@ -6,14 +6,17 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getEventoPublico } from '../services/eventos';
 import { crearRsvp } from '../services/rsvps';
+import { listarMomentosPublicos } from '../services/momentos';
 import { CONSENTIMIENTO_VERSION } from '../data/consentimiento';
+import { FASES } from '../data/momentosPlantilla';
 import { OPERADORA } from '../config';
 import { EstadoCarga, EstadoError, EstadoVacio, Campo } from '../components/ui';
-import type { Asistencia, EventoPublico } from '../types';
+import type { Asistencia, EventoPublico, Momento } from '../types';
 
 export function Invitacion() {
   const { slug = '' } = useParams();
   const [evento, setEvento] = useState<EventoPublico | null | undefined>(undefined);
+  const [momentos, setMomentos] = useState<Momento[]>([]);
   const [error, setError] = useState(false);
 
   // Formulario
@@ -33,6 +36,12 @@ export function Invitacion() {
         if (activo) setEvento(ev);
       })
       .catch(() => activo && setError(true));
+    // Los momentos publicos son complementarios: si fallan, no rompen la invitacion.
+    listarMomentosPublicos(slug)
+      .then((ms) => {
+        if (activo) setMomentos(ms);
+      })
+      .catch(() => {});
     return () => {
       activo = false;
     };
@@ -117,6 +126,48 @@ export function Invitacion() {
       <p className="my-8 whitespace-pre-line text-center leading-relaxed text-[var(--enlace-text)]">
         {evento.mensajeInvitacion}
       </p>
+
+      {/* Linea de tiempo (momentos publicos) */}
+      {momentos.length > 0 && (
+        <section className="my-8">
+          <h2 className="mb-4 text-center font-serif text-2xl text-[var(--enlace-text)]">
+            Nuestros momentos
+          </h2>
+          {FASES.map((f) => {
+            const items = momentos.filter((m) => m.fase === f.fase);
+            if (items.length === 0) return null;
+            return (
+              <div key={f.fase} className="mb-5">
+                <p className="mb-2 text-xs uppercase tracking-[0.2em]" style={{ color: acento }}>
+                  {f.etiqueta}
+                </p>
+                <ul className="flex flex-col gap-3 border-l pl-4" style={{ borderColor: 'var(--enlace-border)' }}>
+                  {items.map((m) => (
+                    <li key={m.momentoId}>
+                      <p className="font-medium text-[var(--enlace-text)]">
+                        {m.titulo}
+                        {m.estado === 'realizado' && (
+                          <span className="ml-2 text-xs" style={{ color: acento }}>
+                            &#10003;
+                          </span>
+                        )}
+                      </p>
+                      {(m.fecha || m.hora || m.lugar) && (
+                        <p className="text-sm text-[var(--enlace-text-soft)]">
+                          {[m.fecha, m.hora, m.lugar].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                      {m.descripcion && (
+                        <p className="text-sm text-[var(--enlace-text-soft)]">{m.descripcion}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* RSVP */}
       <section

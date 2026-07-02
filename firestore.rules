@@ -23,6 +23,12 @@ service cloud.firestore {
     function eventoData(eventoId) {
       return get(/databases/$(database)/documents/eventos/$(eventoId)).data;
     }
+    // Owner de un evento por id. El && corta antes del get() para no-autenticados
+    // (asi el invitado lee momentos publicos sin pagar una lectura del padre).
+    function esOwnerEvento(eventoId) {
+      return isAuth()
+        && (request.auth.uid in get(/databases/$(database)/documents/eventos/$(eventoId)).data.ownerUids);
+    }
     function publicoData(eventoId) {
       return get(/databases/$(database)/documents/publicos/$(eventoId)).data;
     }
@@ -105,6 +111,46 @@ service cloud.firestore {
         allow read, list: if isOperador() || esOwnerDe(eventoData(eventoId));
         allow create: if rsvpValido(eventoId);
         allow update, delete: if false;
+      }
+
+      // ---- momentos : la linea de tiempo (antes / el dia / despues) ----
+      // Lee: operador, owner, o cualquiera SI el momento es publico (lo gatea la
+      // visibilidad por-documento; los privados solo la pareja). Escribe: operador
+      // u owner (novios = roadmap #1). El invitado nunca escribe momentos.
+      function momentoValido(eventoId) {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+          'eventoId', 'titulo', 'tipo', 'fase', 'fecha', 'hora', 'lugar',
+          'descripcion', 'orden', 'visibilidad', 'estado', 'createdAt',
+        ])
+          && d.eventoId == eventoId
+          && d.titulo is string && d.titulo.size() >= 1 && d.titulo.size() <= 120
+          && d.tipo is string && d.tipo.size() <= 40
+          && d.fase in ['antes', 'dia', 'despues']
+          && d.visibilidad in ['publico', 'privado']
+          && d.estado in ['planeado', 'realizado']
+          && d.orden is int
+          && (!('fecha' in d) || (d.fecha is string && d.fecha.size() <= 20))
+          && (!('hora' in d) || (d.hora is string && d.hora.size() <= 10))
+          && (!('lugar' in d) || (d.lugar is string && d.lugar.size() <= 200))
+          && (!('descripcion' in d) || (d.descripcion is string && d.descripcion.size() <= 2000));
+      }
+      function momentoSellado() {
+        let n = request.resource.data;
+        let o = resource.data;
+        return n.eventoId == o.eventoId && n.createdAt == o.createdAt;
+      }
+      match /momentos/{momentoId} {
+        allow get, list: if isOperador()
+                         || esOwnerEvento(eventoId)
+                         || resource.data.visibilidad == 'publico';
+        allow create: if (isOperador() || esOwnerEvento(eventoId))
+                      && momentoValido(eventoId)
+                      && request.resource.data.createdAt == request.time;
+        allow update: if (isOperador() || esOwnerEvento(eventoId))
+                      && momentoValido(eventoId)
+                      && momentoSellado();
+        allow delete: if isOperador() || esOwnerEvento(eventoId);
       }
     }
 

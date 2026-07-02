@@ -9,6 +9,7 @@ import { Login } from '../pages/Login';
 import { Panel } from '../pages/Panel';
 import { EventoEditor } from '../pages/EventoEditor';
 import { EventoDetalle } from '../pages/EventoDetalle';
+import { MomentosEditor } from '../pages/MomentosEditor';
 import { Invitacion } from '../pages/Invitacion';
 import { Cuenta } from '../pages/Cuenta';
 import { SinAcceso } from '../pages/SinAcceso';
@@ -33,6 +34,7 @@ export function AppRouter() {
           <Route index element={<Panel />} />
           <Route path="eventos/nuevo" element={<EventoEditor />} />
           <Route path="eventos/:slug" element={<EventoDetalle />} />
+          <Route path="eventos/:slug/momentos" element={<MomentosEditor />} />
           <Route path="cuenta" element={<Cuenta />} />
         </Route>
 

@@ -67,6 +67,16 @@ export function EventoDetalle() {
         </Link>
       </div>
 
+      <Link
+        to={`/eventos/${slug}/momentos`}
+        className="block rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface)] px-4 py-3 text-sm font-semibold text-[var(--enlace-text)] transition-colors hover:border-enlace-500"
+      >
+        Momentos de la boda &rarr;
+        <span className="block text-xs font-normal text-[var(--enlace-text-soft)]">
+          Pedida, civil, luna de miel... la linea de tiempo completa.
+        </span>
+      </Link>
+
       <div className="grid grid-cols-3 gap-2">
         <Card className="text-center">
           <p className="text-2xl font-bold text-enlace-500">{resumen.confirmados}</p>

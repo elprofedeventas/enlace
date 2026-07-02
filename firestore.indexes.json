@@ -1,4 +1,13 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "momentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "visibilidad", "order": "ASCENDING" },
+        { "fieldPath": "orden", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

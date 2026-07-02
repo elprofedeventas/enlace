@@ -4,7 +4,7 @@
 // del invitado (superficie de abuso) cuando se define VITE_RECAPTCHA_SITE_KEY.
 
 import { initializeApp } from 'firebase/app';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
 import {
   initializeFirestore,
@@ -23,13 +23,14 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// App Check (reCAPTCHA Enterprise). Asegura que solo NUESTRA app llama a
-// Firebase; clave en ENLACE porque el invitado escribe sin login. Se activa al
-// definir VITE_RECAPTCHA_SITE_KEY (en produccion Clase A es obligatoria).
+// App Check (reCAPTCHA v3). Asegura que solo NUESTRA app llama a Firebase; clave
+// en ENLACE porque el invitado escribe sin login. Se usa v3 (no Enterprise)
+// porque Enterprise exige facturacion/Blaze y el proyecto vive en Spark. Se
+// activa al definir VITE_RECAPTCHA_SITE_KEY (la site key v3 del dominio).
 const appCheckKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 if (appCheckKey) {
   initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider(appCheckKey),
+    provider: new ReCaptchaV3Provider(appCheckKey),
     isTokenAutoRefreshEnabled: true,
   });
 }

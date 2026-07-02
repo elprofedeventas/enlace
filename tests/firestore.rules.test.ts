@@ -20,6 +20,8 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  query,
+  where,
 } from 'firebase/firestore';
 
 let env: RulesTestEnvironment;
@@ -97,6 +99,27 @@ beforeEach(async () => {
       numAcompanantes: 0,
       aceptoPolitica: true,
       politicaVersion: '2026-06-29',
+      createdAt: new Date(),
+    });
+    // Momentos: uno publico (civil) y uno privado (bridal shower).
+    await setDoc(doc(db, 'eventos/bodaA/momentos/civil'), {
+      eventoId: 'bodaA',
+      titulo: 'Matrimonio Civil',
+      tipo: 'civil',
+      fase: 'dia',
+      orden: 60,
+      visibilidad: 'publico',
+      estado: 'planeado',
+      createdAt: new Date(),
+    });
+    await setDoc(doc(db, 'eventos/bodaA/momentos/bridal'), {
+      eventoId: 'bodaA',
+      titulo: 'Bridal Shower',
+      tipo: 'bridal-shower',
+      fase: 'antes',
+      orden: 30,
+      visibilidad: 'privado',
+      estado: 'planeado',
       createdAt: new Date(),
     });
     // Boda B: en borrador (no publicada).
@@ -222,6 +245,56 @@ describe('escalada de privilegios del owner (novio)', () => {
   });
   it('el operador SI puede cambiar el plan', async () => {
     await assertSucceeds(updateDoc(doc(operador(), 'eventos/bodaA'), { plan: 'lujo' }));
+  });
+});
+
+describe('momentos (linea de tiempo)', () => {
+  const MOMENTO_OK = {
+    eventoId: 'bodaA',
+    titulo: 'La sesion de fotos',
+    tipo: 'sesion-fotos',
+    fase: 'antes',
+    orden: 50,
+    visibilidad: 'publico',
+    estado: 'planeado',
+    createdAt: serverTimestamp(),
+  };
+
+  it('el invitado ve un momento PUBLICO por id', async () => {
+    await assertSucceeds(getDoc(doc(invitado(), 'eventos/bodaA/momentos/civil')));
+  });
+  it('el invitado NO ve un momento PRIVADO', async () => {
+    await assertFails(getDoc(doc(invitado(), 'eventos/bodaA/momentos/bridal')));
+  });
+  it('el invitado lista solo los momentos publicos (query filtrada)', async () => {
+    await assertSucceeds(
+      getDocs(query(collection(invitado(), 'eventos/bodaA/momentos'), where('visibilidad', '==', 'publico'))),
+    );
+  });
+  it('el invitado NO puede listar TODOS los momentos (incluiria privados)', async () => {
+    await assertFails(getDocs(collection(invitado(), 'eventos/bodaA/momentos')));
+  });
+  it('el invitado NO puede crear momentos', async () => {
+    await assertFails(setDoc(doc(invitado(), 'eventos/bodaA/momentos/pirata'), MOMENTO_OK));
+  });
+  it('el operador crea un momento valido', async () => {
+    await assertSucceeds(setDoc(doc(operador(), 'eventos/bodaA/momentos/nuevo'), MOMENTO_OK));
+  });
+  it('el operador rechaza un momento con fase invalida', async () => {
+    await assertFails(
+      setDoc(doc(operador(), 'eventos/bodaA/momentos/malo'), { ...MOMENTO_OK, fase: 'cuando-sea' }),
+    );
+  });
+  it('el operador rechaza un momento con campo no modelado (hasOnly)', async () => {
+    await assertFails(
+      setDoc(doc(operador(), 'eventos/bodaA/momentos/sucio'), { ...MOMENTO_OK, secreto: 'x' }),
+    );
+  });
+  it('el owner gestiona y borra momentos de SU boda', async () => {
+    await assertSucceeds(
+      updateDoc(doc(ownerA(), 'eventos/bodaA/momentos/civil'), { estado: 'realizado' }),
+    );
+    await assertSucceeds(deleteDoc(doc(ownerA(), 'eventos/bodaA/momentos/bridal')));
   });
 });
 

@@ -82,3 +82,27 @@ export interface Rsvp {
 }
 
 export type RsvpInput = Omit<Rsvp, 'rsvpId' | 'createdAt'>;
+
+// ---- Momentos: la linea de tiempo de la boda (antes / el dia / despues) ----
+export type Visibilidad = 'publico' | 'privado';
+export type EstadoMomento = 'planeado' | 'realizado';
+export type FaseMomento = 'antes' | 'dia' | 'despues';
+
+// Momento de la boda: eventos/{eventoId}/momentos/{momentoId}.
+export interface Momento {
+  momentoId: string;
+  eventoId: string;
+  titulo: string;
+  tipo: string; // id de la plantilla o 'otro'
+  fase: FaseMomento;
+  fecha?: string; // ISO date (YYYY-MM-DD)
+  hora?: string; // HH:MM
+  lugar?: string;
+  descripcion?: string;
+  orden: number;
+  visibilidad: Visibilidad; // publico = lo ve el invitado; privado = solo la pareja
+  estado: EstadoMomento;
+  createdAt: Date | null;
+}
+
+export type MomentoInput = Omit<Momento, 'momentoId' | 'createdAt'>;
