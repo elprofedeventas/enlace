@@ -1,17 +1,25 @@
 // ENLACE - la INVITACION publica (/b/:slug). Sin login, sin shell del panel.
 // El invitado lee la proyeccion publica y confirma su RSVP. Es la superficie
 // publica: el consentimiento LOPDP (checkbox NO premarcado) es obligatorio.
+//
+// UX-1: la pagina compone las piezas de components/invitacion/ (hero, cuenta
+// regresiva, acciones, hilo de momentos, tarjeta RSVP). La capa de servicios y
+// la logica de seguridad NO cambian: solo la presentacion.
 
-import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { getEventoPublico } from '../services/eventos';
 import { crearRsvp } from '../services/rsvps';
 import { listarMomentosPublicos } from '../services/momentos';
 import { CONSENTIMIENTO_VERSION } from '../data/consentimiento';
-import { FASES } from '../data/momentosPlantilla';
 import { OPERADORA } from '../config';
-import { EstadoCarga, EstadoError, EstadoVacio, Campo } from '../components/ui';
 import type { Asistencia, EventoPublico, Momento } from '../types';
+import { temaInvitacion } from '../components/invitacion/tema';
+import { Hero } from '../components/invitacion/Hero';
+import { CuentaRegresiva, Acciones } from '../components/invitacion/CuentaYAcciones';
+import { TimelineMomentos } from '../components/invitacion/TimelineMomentos';
+import { RsvpCard } from '../components/invitacion/RsvpCard';
+import { Monograma, Reveal, Separador } from '../components/invitacion/Ornamentos';
 
 export function Invitacion() {
   const { slug = '' } = useParams();
@@ -19,12 +27,6 @@ export function Invitacion() {
   const [momentos, setMomentos] = useState<Momento[]>([]);
   const [error, setError] = useState(false);
 
-  // Formulario
-  const [nombre, setNombre] = useState('');
-  const [asistencia, setAsistencia] = useState<Asistencia>('confirmado');
-  const [numAcomp, setNumAcomp] = useState('0');
-  const [mensaje, setMensaje] = useState('');
-  const [acepto, setAcepto] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
@@ -47,264 +49,144 @@ export function Invitacion() {
     };
   }, [slug]);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function enviarRsvp(datos: {
+    nombre: string;
+    asistencia: Asistencia;
+    numAcompanantes: number;
+    mensaje: string;
+    acepto: boolean;
+  }) {
     setErrorEnvio(null);
     if (!evento) return;
-    if (!acepto) {
-      setErrorEnvio('Para confirmar, acepta la politica de privacidad.');
+    if (!datos.acepto) {
+      setErrorEnvio('Para confirmar, acepta la política de privacidad.');
       return;
     }
     const max = evento.maxAcompanantesDefault;
-    const acomp = asistencia === 'confirmado' ? Math.max(0, Math.min(max, parseInt(numAcomp, 10) || 0)) : 0;
+    const acomp =
+      datos.asistencia === 'confirmado'
+        ? Math.max(0, Math.min(max, datos.numAcompanantes))
+        : 0;
 
     setEnviando(true);
     try {
       await crearRsvp(evento.eventoId, {
-        nombre,
-        asistencia,
+        nombre: datos.nombre,
+        asistencia: datos.asistencia,
         numAcompanantes: acomp,
-        mensaje: mensaje || undefined,
+        mensaje: datos.mensaje || undefined,
         aceptoPolitica: true,
         politicaVersion: CONSENTIMIENTO_VERSION,
       });
       setEnviado(true);
     } catch {
-      setErrorEnvio('No pudimos registrar tu confirmacion. Intenta de nuevo.');
+      setErrorEnvio('No pudimos registrar tu confirmación. Intenta de nuevo.');
     } finally {
       setEnviando(false);
     }
   }
 
-  const acento = evento?.paleta?.acento ?? '#bb0c43';
-
-  if (error) return <EstadoError detalle="No pudimos cargar la invitacion." />;
-  if (evento === undefined) return <EstadoCarga texto="Cargando invitacion..." />;
+  if (error) return <EstadoInvitacion titulo="Algo salió mal" detalle="No pudimos cargar la invitación. Revisa tu conexión e intenta de nuevo." />;
+  if (evento === undefined) return <CargaInvitacion />;
   if (evento === null) {
     return (
-      <EstadoVacio
-        titulo="Invitacion no encontrada"
-        detalle="Revisa el enlace que te compartieron."
+      <EstadoInvitacion
+        titulo="Invitación no encontrada"
+        detalle="Revisa el enlace que te compartieron: puede que falte una letra."
       />
     );
   }
   // Solo se muestra una boda publicada; los borradores/archivados no se filtran.
   if (evento.estado !== 'publicado') {
     return (
-      <EstadoVacio
-        titulo="Invitacion aun no disponible"
-        detalle="Vuelve a entrar mas tarde con el enlace que te compartieron."
+      <EstadoInvitacion
+        titulo="Esta invitación aún no está lista"
+        detalle="La pareja está preparando los últimos detalles. Vuelve pronto con el mismo enlace."
       />
     );
   }
 
+  const acento = evento.paleta?.acento ?? '#bb0c43';
+
   return (
-    <div className="mx-auto min-h-full max-w-lg px-5 py-10">
-      {/* Encabezado de la invitacion */}
-      <header className="flex flex-col items-center gap-2 text-center">
-        {evento.portadaUrl && (
-          <img
-            src={evento.portadaUrl}
-            alt=""
-            className="mb-2 h-40 w-full rounded object-cover"
-          />
-        )}
-        <p className="text-xs uppercase tracking-[0.3em]" style={{ color: acento }}>
-          Nos casamos
-        </p>
-        <h1 className="font-serif text-4xl font-bold text-[var(--enlace-text)]">
-          {evento.novios.personaA} & {evento.novios.personaB}
-        </h1>
-        <p className="text-sm text-[var(--enlace-text-soft)]">
-          {evento.fecha} · {evento.lugar.nombre}
-        </p>
-        {evento.lugar.direccion && (
-          <p className="text-xs text-[var(--enlace-text-soft)]">{evento.lugar.direccion}</p>
-        )}
-      </header>
+    <div className="min-h-full" style={temaInvitacion(acento)}>
+      <Hero evento={evento} />
 
-      <p className="my-8 whitespace-pre-line text-center leading-relaxed text-[var(--enlace-text)]">
-        {evento.mensajeInvitacion}
-      </p>
-
-      {/* Linea de tiempo (momentos publicos) */}
-      {momentos.length > 0 && (
-        <section className="my-8">
-          <h2 className="mb-4 text-center font-serif text-2xl text-[var(--enlace-text)]">
-            Nuestros momentos
-          </h2>
-          {FASES.map((f) => {
-            const items = momentos.filter((m) => m.fase === f.fase);
-            if (items.length === 0) return null;
-            return (
-              <div key={f.fase} className="mb-5">
-                <p className="mb-2 text-xs uppercase tracking-[0.2em]" style={{ color: acento }}>
-                  {f.etiqueta}
-                </p>
-                <ul className="flex flex-col gap-3 border-l pl-4" style={{ borderColor: 'var(--enlace-border)' }}>
-                  {items.map((m) => (
-                    <li key={m.momentoId}>
-                      <p className="font-medium text-[var(--enlace-text)]">
-                        {m.titulo}
-                        {m.estado === 'realizado' && (
-                          <span className="ml-2 text-xs" style={{ color: acento }}>
-                            &#10003;
-                          </span>
-                        )}
-                      </p>
-                      {(m.fecha || m.hora || m.lugar) && (
-                        <p className="text-sm text-[var(--enlace-text-soft)]">
-                          {[m.fecha, m.hora, m.lugar].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
-                      {m.descripcion && (
-                        <p className="text-sm text-[var(--enlace-text-soft)]">{m.descripcion}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </section>
-      )}
-
-      {/* RSVP */}
-      <section
-        className="rounded-lg border p-5"
-        style={{ borderColor: 'var(--enlace-border)' }}
-      >
-        {enviado ? (
-          <div className="py-6 text-center">
-            <p className="font-serif text-2xl" style={{ color: acento }}>
-              Gracias
-            </p>
-            <p className="mt-1 text-sm text-[var(--enlace-text-soft)]">
-              Tu respuesta quedo registrada.
-            </p>
+      <main className="mx-auto max-w-lg px-6 pb-14">
+        <Reveal>
+          <div className="pt-10">
+            <CuentaRegresiva fecha={evento.fecha} slug={evento.slug} />
           </div>
-        ) : (
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <h2 className="text-center font-serif text-xl text-[var(--enlace-text)]">
-              Confirma tu asistencia
-            </h2>
+        </Reveal>
 
-            <Campo
-              label="Tu nombre"
-              id="nombre"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              maxLength={120}
-              required
-            />
+        <Separador />
 
-            <div className="flex gap-2">
-              <BotonOpcion
-                activo={asistencia === 'confirmado'}
-                acento={acento}
-                onClick={() => setAsistencia('confirmado')}
-              >
-                Si, asistire
-              </BotonOpcion>
-              <BotonOpcion
-                activo={asistencia === 'declinado'}
-                acento={acento}
-                onClick={() => setAsistencia('declinado')}
-              >
-                No podre ir
-              </BotonOpcion>
-            </div>
+        <Reveal>
+          <p className="whitespace-pre-line text-center font-serif text-lg leading-relaxed text-[var(--enlace-text)]">
+            {evento.mensajeInvitacion}
+          </p>
+        </Reveal>
 
-            {asistencia === 'confirmado' && evento.maxAcompanantesDefault > 0 && (
-              <Campo
-                label={`Acompanantes (hasta ${evento.maxAcompanantesDefault})`}
-                id="acomp"
-                type="number"
-                min={0}
-                max={evento.maxAcompanantesDefault}
-                value={numAcomp}
-                onChange={(e) => setNumAcomp(e.target.value)}
-              />
-            )}
+        <Reveal delay={80}>
+          <div className="mt-8">
+            <Acciones evento={evento} />
+          </div>
+        </Reveal>
 
-            <div className="flex flex-col gap-1">
-              <label htmlFor="msg" className="text-sm font-medium text-[var(--enlace-text-soft)]">
-                Un mensaje para la pareja (opcional)
-              </label>
-              <textarea
-                id="msg"
-                value={mensaje}
-                onChange={(e) => setMensaje(e.target.value)}
-                rows={2}
-                maxLength={500}
-                className="w-full rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface-2)] px-3 py-2.5 text-[var(--enlace-text)] outline-none focus:border-enlace-500"
-              />
-            </div>
-
-            <label className="flex items-start gap-2 text-xs text-[var(--enlace-text-soft)]">
-              <input
-                type="checkbox"
-                checked={acepto}
-                onChange={(e) => setAcepto(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                Acepto que mis datos se usen para organizar este evento, segun la{' '}
-                <Link to="/privacidad" className="font-medium text-enlace-500">
-                  Politica de Privacidad
-                </Link>
-                .
-              </span>
-            </label>
-
-            {errorEnvio && <p className="text-sm text-red-400">{errorEnvio}</p>}
-
-            <button
-              type="submit"
-              disabled={enviando}
-              className="rounded px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: acento }}
-            >
-              {enviando ? 'Enviando...' : 'Confirmar'}
-            </button>
-          </form>
+        {momentos.length > 0 && (
+          <>
+            <Separador />
+            <TimelineMomentos momentos={momentos} />
+          </>
         )}
-      </section>
 
-      <footer className="mt-10 text-center text-xs text-[var(--enlace-text-soft)]">
-        Hecho con ENLACE · {OPERADORA}
-      </footer>
+        <Separador />
+
+        <Reveal>
+          <RsvpCard
+            evento={evento}
+            enviando={enviando}
+            enviado={enviado}
+            errorEnvio={errorEnvio}
+            onEnviar={enviarRsvp}
+          />
+        </Reveal>
+
+        <footer className="mt-12 flex flex-col items-center gap-1 text-center">
+          <span className="h-px w-10 bg-[var(--boda-linea)]" aria-hidden="true" />
+          <p className="mt-2 text-[11px] tracking-wide text-[var(--enlace-text-soft)]">
+            Hecho con <span className="font-serif italic">ENLACE</span> · {OPERADORA}
+          </p>
+        </footer>
+      </main>
     </div>
   );
 }
 
-function BotonOpcion({
-  activo,
-  acento,
-  onClick,
-  children,
-}: {
-  activo: boolean;
-  acento: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+// Estados con marca: la invitacion nunca muestra el generico del panel.
+function EstadoInvitacion({ titulo, detalle }: { titulo: string; detalle: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex-1 rounded border px-3 py-2.5 text-sm font-medium transition-colors"
-      style={
-        activo
-          ? { backgroundColor: acento, color: '#fff', borderColor: acento }
-          : {
-              borderColor: 'var(--enlace-border)',
-              color: 'var(--enlace-text-soft)',
-              backgroundColor: 'transparent',
-            }
-      }
+    <div
+      className="flex min-h-[100svh] flex-col items-center justify-center gap-3 px-8 text-center"
+      style={temaInvitacion('#bb0c43')}
     >
-      {children}
-    </button>
+      <Monograma a="E" b="N" size={72} />
+      <p className="font-serif text-2xl text-[var(--enlace-text)]">{titulo}</p>
+      <p className="max-w-xs text-sm leading-relaxed text-[var(--enlace-text-soft)]">{detalle}</p>
+    </div>
+  );
+}
+
+function CargaInvitacion() {
+  return (
+    <div
+      className="flex min-h-[100svh] flex-col items-center justify-center gap-4"
+      style={temaInvitacion('#bb0c43')}
+    >
+      <span className="inv-pulso h-2 w-2 rounded-full" aria-hidden="true" />
+      <p className="text-sm text-[var(--enlace-text-soft)]" role="status">
+        Preparando la invitación…
+      </p>
+    </div>
   );
 }
