@@ -40,6 +40,19 @@ function randomUser() {
 function invitado() {
   return env.unauthenticatedContext().firestore();
 }
+// Invitado CON PASE del portero (ENLACE-2): claims firmados en el custom token.
+function invitadaConLlave(grupos: string[] = ['bridal'], admisiones = 3) {
+  return env
+    .authenticatedContext('inv-bodaA-maju', {
+      invitado: true,
+      eventoId: 'bodaA',
+      invitadoId: 'maju',
+      nombre: 'Maria Jose',
+      admisiones,
+      grupos,
+    })
+    .firestore();
+}
 
 const RSVP_OK = {
   nombre: 'Tia Rosa',
@@ -120,6 +133,28 @@ beforeEach(async () => {
       orden: 30,
       visibilidad: 'privado',
       estado: 'planeado',
+      createdAt: new Date(),
+    });
+    // Momento por GRUPOS: solo lo ve la audiencia 'bridal' (ENLACE-2).
+    await setDoc(doc(db, 'eventos/bodaA/momentos/te'), {
+      eventoId: 'bodaA',
+      titulo: 'Tarde de te',
+      tipo: 'bridal-shower',
+      fase: 'antes',
+      orden: 35,
+      visibilidad: 'grupos',
+      audiencias: ['bridal'],
+      estado: 'planeado',
+      createdAt: new Date(),
+    });
+    // Invitada en la lista privada (con su llave).
+    await setDoc(doc(db, 'eventos/bodaA/invitados/maju'), {
+      eventoId: 'bodaA',
+      nombre: 'Maria Jose',
+      admisiones: 3,
+      grupos: ['bridal'],
+      token: 'LLAVEDEPRUEBA1234567890abcd',
+      estado: 'activo',
       createdAt: new Date(),
     });
     // Boda B: en borrador (no publicada).
@@ -339,5 +374,130 @@ describe('RSVP del invitado (escritura publica validada)', () => {
       updateDoc(doc(invitado(), 'eventos/bodaA/rsvps/semilla'), { numAcompanantes: 99 }),
     );
     await assertFails(deleteDoc(doc(invitado(), 'eventos/bodaA/rsvps/semilla')));
+  });
+});
+
+
+// ==== ENLACE-2: la cerradura (invitados con llave, grupos, RSVP con cupo) ====
+
+const RSVP_LLAVE_OK = {
+  nombre: 'Maria Jose',
+  asistencia: 'confirmado',
+  numAcompanantes: 2, // admisiones 3 = ella + 2
+  aceptoPolitica: true,
+  politicaVersion: '2026-06-29',
+  createdAt: serverTimestamp(),
+};
+
+describe('ENLACE-2: lista privada de invitados', () => {
+  it('nadie sin gestion lee la lista (ahi viven las llaves)', async () => {
+    await assertFails(getDoc(doc(invitado(), 'eventos/bodaA/invitados/maju')));
+    await assertFails(getDocs(collection(randomUser(), 'eventos/bodaA/invitados')));
+    await assertFails(getDoc(doc(invitadaConLlave(), 'eventos/bodaA/invitados/maju')));
+  });
+  it('operador y owner administran la lista', async () => {
+    await assertSucceeds(getDocs(collection(operador(), 'eventos/bodaA/invitados')));
+    await assertSucceeds(
+      setDoc(doc(ownerA(), 'eventos/bodaA/invitados/tio'), {
+        eventoId: 'bodaA',
+        nombre: 'Tio Pepe',
+        admisiones: 2,
+        grupos: [],
+        token: 'OTRALLAVEDEPRUEBA0987654321',
+        estado: 'activo',
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+  it('rechaza invitados con forma invalida (campo extra / llave corta)', async () => {
+    await assertFails(
+      setDoc(doc(operador(), 'eventos/bodaA/invitados/malo'), {
+        eventoId: 'bodaA',
+        nombre: 'Malo',
+        admisiones: 2,
+        grupos: [],
+        token: 'corta',
+        estado: 'activo',
+        createdAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(operador(), 'eventos/bodaA/invitados/malo2'), {
+        eventoId: 'bodaA',
+        nombre: 'Malo',
+        admisiones: 2,
+        grupos: [],
+        token: 'OTRALLAVEDEPRUEBA0987654321',
+        estado: 'activo',
+        sorpresa: true,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+});
+
+describe('ENLACE-2: momentos por grupos (el Bridal Shower)', () => {
+  it('la invitada del grupo SI lee el momento de su audiencia', async () => {
+    await assertSucceeds(getDoc(doc(invitadaConLlave(['bridal']), 'eventos/bodaA/momentos/te')));
+  });
+  it('un invitado de OTRO grupo NO lo lee', async () => {
+    await assertFails(getDoc(doc(invitadaConLlave(['general']), 'eventos/bodaA/momentos/te')));
+  });
+  it('sin pase NO se lee (ni logueado sin claims de invitado)', async () => {
+    await assertFails(getDoc(doc(invitado(), 'eventos/bodaA/momentos/te')));
+    await assertFails(getDoc(doc(randomUser(), 'eventos/bodaA/momentos/te')));
+  });
+  it('la consulta del invitado por sus grupos funciona (list)', async () => {
+    const db = invitadaConLlave(['bridal']);
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(db, 'eventos/bodaA/momentos'),
+          where('visibilidad', '==', 'grupos'),
+          where('audiencias', 'array-contains-any', ['bridal']),
+        ),
+      ),
+    );
+  });
+});
+
+describe('ENLACE-2: RSVP con llave (cupo y doc propio)', () => {
+  it('la invitada confirma SU doc, dentro de su cupo', async () => {
+    await assertSucceeds(
+      setDoc(doc(invitadaConLlave(), 'eventos/bodaA/rsvps/maju'), RSVP_LLAVE_OK),
+    );
+  });
+  it('rechaza pasarse del cupo (admisiones 3 = max 2 acompanantes)', async () => {
+    await assertFails(
+      setDoc(doc(invitadaConLlave(), 'eventos/bodaA/rsvps/maju'), {
+        ...RSVP_LLAVE_OK,
+        numAcompanantes: 3,
+      }),
+    );
+  });
+  it('rechaza escribir el doc de OTRO invitado', async () => {
+    await assertFails(
+      setDoc(doc(invitadaConLlave(), 'eventos/bodaA/rsvps/tio'), RSVP_LLAVE_OK),
+    );
+  });
+  it('puede cambiar de opinion (update sin tocar createdAt) y leer su rsvp', async () => {
+    const db = invitadaConLlave();
+    await assertSucceeds(setDoc(doc(db, 'eventos/bodaA/rsvps/maju'), RSVP_LLAVE_OK));
+    await assertSucceeds(getDoc(doc(db, 'eventos/bodaA/rsvps/maju')));
+    await assertSucceeds(
+      updateDoc(doc(db, 'eventos/bodaA/rsvps/maju'), { asistencia: 'declinado', numAcompanantes: 0 }),
+    );
+  });
+});
+
+describe('ENLACE-2: modo de acceso por llave cierra el RSVP abierto', () => {
+  it('con modoAcceso tokenUnico, el RSVP sin llave se rechaza', async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      await updateDoc(doc(c.firestore(), 'publicos/bodaA'), { modoAcceso: 'tokenUnico' });
+    });
+    await assertFails(setDoc(doc(invitado(), 'eventos/bodaA/rsvps/r9'), RSVP_OK));
+  });
+  it('con modoAcceso publico (o legado sin campo), el RSVP abierto sigue vivo', async () => {
+    await assertSucceeds(setDoc(doc(invitado(), 'eventos/bodaA/rsvps/r10'), RSVP_OK));
   });
 });

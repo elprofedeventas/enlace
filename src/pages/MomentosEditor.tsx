@@ -13,9 +13,11 @@ import {
 } from '../services/momentos';
 import { MOMENTOS_PLANTILLA, FASES } from '../data/momentosPlantilla';
 import { EstadoCarga, EstadoError, EstadoVacio, Card } from '../components/ui';
+import { getEvento } from '../services/eventos';
 import type { Momento, MomentoInput } from '../types';
 
 export function MomentosEditor() {
+  const [gruposEvento, setGruposEvento] = useState<string[]>([]);
   const { slug = '' } = useParams();
   const [momentos, setMomentos] = useState<Momento[] | null>(null);
   const [error, setError] = useState(false);
@@ -28,6 +30,12 @@ export function MomentosEditor() {
     } catch {
       setError(true);
     }
+  }, [slug]);
+
+  useEffect(() => {
+    getEvento(slug)
+      .then((ev) => setGruposEvento(ev?.grupos ?? []))
+      .catch(() => {});
   }, [slug]);
 
   useEffect(() => {
@@ -158,6 +166,7 @@ export function MomentosEditor() {
             <li key={m.momentoId}>
               <MomentoCard
                 momento={m}
+                gruposEvento={gruposEvento}
                 primero={i === 0}
                 ultimo={i === momentos.length - 1}
                 onGuardar={(c) => guardar(m, c)}
@@ -175,6 +184,7 @@ export function MomentosEditor() {
 
 function MomentoCard({
   momento,
+  gruposEvento,
   primero,
   ultimo,
   onGuardar,
@@ -183,6 +193,7 @@ function MomentoCard({
   onBajar,
 }: {
   momento: Momento;
+  gruposEvento: string[];
   primero: boolean;
   ultimo: boolean;
   onGuardar: (cambios: Partial<MomentoInput>) => Promise<void>;
@@ -197,6 +208,7 @@ function MomentoCard({
   const [lugar, setLugar] = useState(momento.lugar ?? '');
   const [descripcion, setDescripcion] = useState(momento.descripcion ?? '');
   const [visibilidad, setVisibilidad] = useState(momento.visibilidad);
+  const [audiencias, setAudiencias] = useState<string[]>(momento.audiencias ?? []);
   const [estado, setEstado] = useState(momento.estado);
   const [guardando, setGuardando] = useState(false);
 
@@ -217,6 +229,8 @@ function MomentoCard({
         lugar,
         descripcion,
         visibilidad,
+        // Las reglas exigen audiencias SOLO si la visibilidad es por grupos.
+        ...(visibilidad === 'grupos' ? { audiencias } : {}),
         estado,
       });
     } finally {
@@ -283,17 +297,50 @@ function MomentoCard({
         className={`${inputCls} mt-2`}
       />
 
+      {visibilidad === 'grupos' && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[var(--enlace-text-soft)]">Lo ven:</span>
+          {gruposEvento.length === 0 && (
+            <span className="text-xs text-[var(--enlace-text-soft)]">
+              (crea grupos en Invitados y llaves)
+            </span>
+          )}
+          {gruposEvento.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() =>
+                setAudiencias((as) =>
+                  as.includes(g) ? as.filter((x) => x !== g) : [...as, g],
+                )
+              }
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                audiencias.includes(g)
+                  ? 'border-enlace-500 bg-enlace-500/15 text-[var(--enlace-text)]'
+                  : 'border-[var(--enlace-border)] text-[var(--enlace-text-soft)]'
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => setVisibilidad((v) => (v === 'publico' ? 'privado' : 'publico'))}
+          onClick={() =>
+            setVisibilidad((v) =>
+              v === 'publico' ? 'privado' : v === 'privado' ? 'grupos' : 'publico',
+            )
+          }
           className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            visibilidad === 'publico'
+            visibilidad !== 'privado'
               ? 'bg-enlace-600/20 text-enlace-400'
               : 'bg-[var(--enlace-surface-2)] text-[var(--enlace-text-soft)]'
           }`}
         >
-          {visibilidad === 'publico' ? 'Publico' : 'Privado'}
+          {visibilidad === 'publico' ? 'Publico' : visibilidad === 'privado' ? 'Privado' : 'Por grupos'}
         </button>
         <button
           type="button"

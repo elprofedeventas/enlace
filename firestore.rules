@@ -32,6 +32,13 @@ service cloud.firestore {
     function publicoData(eventoId) {
       return get(/databases/$(database)/documents/publicos/$(eventoId)).data;
     }
+    // Invitado con PASE del portero (custom token con claims). El pase es
+    // infalsificable: lo firma /api/portero tras verificar la llave.
+    function esInvitadoDe(eventoId) {
+      return isAuth()
+        && ('invitado' in request.auth.token) && request.auth.token.invitado == true
+        && ('eventoId' in request.auth.token) && request.auth.token.eventoId == eventoId;
+    }
 
     // ---- validacion de forma del documento de GESTION ----
     // hasOnly cierra la puerta a campos no modelados (incluido un owner que
@@ -40,8 +47,9 @@ service cloud.firestore {
       return d.keys().hasOnly([
         'eventoId', 'slug', 'novios', 'fecha', 'lugar', 'mensajeInvitacion',
         'portadaUrl', 'paleta', 'ownerUids', 'plan', 'planRenovacion', 'acceso',
-        'maxAcompanantesDefault', 'estado', 'createdBy', 'createdAt',
+        'grupos', 'maxAcompanantesDefault', 'estado', 'createdBy', 'createdAt',
       ])
+        && (!('grupos' in d) || (d.grupos is list && d.grupos.size() <= 30))
         && d.eventoId == eventoId
         && d.slug is string && d.slug.size() >= 3 && d.slug.size() <= 40
         && d.estado in ['borrador', 'publicado', 'post_evento', 'archivado']
@@ -107,10 +115,74 @@ service cloud.firestore {
           && d.politicaVersion is string && d.politicaVersion.size() <= 20
           && d.createdAt == request.time;
       }
+      // RSVP del invitado con pase: escribe SOLO el doc cuyo id es SU
+      // invitadoId, dentro de su cupo (admisiones - 1 acompanantes). Puede
+      // cambiar de opinion (update) sin tocar createdAt.
+      function rsvpInvitadoValido(eventoId) {
+        let d = request.resource.data;
+        let t = request.auth.token;
+        return d.keys().hasOnly([
+          'nombre', 'asistencia', 'numAcompanantes', 'mensaje',
+          'aceptoPolitica', 'politicaVersion', 'createdAt',
+        ])
+          && esInvitadoDe(eventoId)
+          && d.nombre is string && d.nombre.size() >= 1 && d.nombre.size() <= 120
+          && d.asistencia in ['confirmado', 'declinado']
+          && d.numAcompanantes is int
+          && d.numAcompanantes >= 0
+          && d.numAcompanantes <= (t.admisiones - 1)
+          && (!('mensaje' in d) || (d.mensaje is string && d.mensaje.size() <= 500))
+          && d.aceptoPolitica == true
+          && d.politicaVersion is string && d.politicaVersion.size() <= 20;
+      }
       match /rsvps/{rsvpId} {
         allow read, list: if isOperador() || esOwnerDe(eventoData(eventoId));
-        allow create: if rsvpValido(eventoId);
-        allow update, delete: if false;
+        // El invitado con pase lee SU propia confirmacion (para retomarla).
+        allow get: if esInvitadoDe(eventoId)
+                   && rsvpId == request.auth.token.invitadoId;
+        // RSVP abierto: la "puerta de servicio", solo para el PUBLICO sin
+        // sesion. Quien ya porta un pase de invitado (con llave) tiene su
+        // propia puerta (el bloque de abajo) y NO puede entrar por aqui a
+        // escribir el slot de nadie. Ademas, solo en modo publico (o legado).
+        allow create: if rsvpValido(eventoId)
+                      && !esInvitadoDe(eventoId)
+                      && (!('modoAcceso' in publicoData(eventoId))
+                          || publicoData(eventoId).modoAcceso == 'publico');
+        // RSVP con llave: crea o actualiza su doc (id == invitadoId).
+        allow create: if rsvpInvitadoValido(eventoId)
+                      && rsvpId == request.auth.token.invitadoId
+                      && request.resource.data.createdAt == request.time;
+        allow update: if rsvpInvitadoValido(eventoId)
+                      && rsvpId == request.auth.token.invitadoId
+                      && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if false;
+      }
+
+      // ---- invitados : la lista con llave (PRIVADA, ENLACE-2) ----
+      // Solo operador/owners. El invitado NUNCA lee estos docs: su llave la
+      // verifica el portero (/api/portero) con el SDK de administrador.
+      function invitadoValido(eventoId) {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+          'eventoId', 'nombre', 'admisiones', 'grupos', 'token', 'estado', 'createdAt',
+        ])
+          && d.eventoId == eventoId
+          && d.nombre is string && d.nombre.size() >= 1 && d.nombre.size() <= 120
+          && d.admisiones is int && d.admisiones >= 1 && d.admisiones <= 21
+          && d.grupos is list && d.grupos.size() <= 30
+          && d.token is string && d.token.size() >= 20 && d.token.size() <= 64
+          && d.estado in ['activo', 'revocado'];
+      }
+      match /invitados/{invitadoId} {
+        allow read, list: if isOperador() || esOwnerEvento(eventoId);
+        allow create: if (isOperador() || esOwnerEvento(eventoId))
+                      && invitadoValido(eventoId)
+                      && request.resource.data.createdAt == request.time;
+        allow update: if (isOperador() || esOwnerEvento(eventoId))
+                      && invitadoValido(eventoId)
+                      && request.resource.data.eventoId == resource.data.eventoId
+                      && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOperador() || esOwnerEvento(eventoId);
       }
 
       // ---- momentos : la linea de tiempo (antes / el dia / despues) ----
@@ -121,13 +193,16 @@ service cloud.firestore {
         let d = request.resource.data;
         return d.keys().hasOnly([
           'eventoId', 'titulo', 'tipo', 'fase', 'fecha', 'hora', 'lugar',
-          'descripcion', 'orden', 'visibilidad', 'estado', 'createdAt',
+          'descripcion', 'orden', 'visibilidad', 'estado', 'audiencias', 'createdAt',
         ])
           && d.eventoId == eventoId
           && d.titulo is string && d.titulo.size() >= 1 && d.titulo.size() <= 120
           && d.tipo is string && d.tipo.size() <= 40
           && d.fase in ['antes', 'dia', 'despues']
-          && d.visibilidad in ['publico', 'privado']
+          && d.visibilidad in ['publico', 'privado', 'grupos']
+          && ((d.visibilidad != 'grupos' && !('audiencias' in d))
+              || (d.visibilidad == 'grupos' && d.audiencias is list
+                  && d.audiencias.size() >= 1 && d.audiencias.size() <= 30))
           && d.estado in ['planeado', 'realizado']
           && d.orden is int
           && (!('fecha' in d) || (d.fecha is string && d.fecha.size() <= 20))
@@ -143,7 +218,10 @@ service cloud.firestore {
       match /momentos/{momentoId} {
         allow get, list: if isOperador()
                          || esOwnerEvento(eventoId)
-                         || resource.data.visibilidad == 'publico';
+                         || resource.data.visibilidad == 'publico'
+                         || (esInvitadoDe(eventoId)
+                             && resource.data.visibilidad == 'grupos'
+                             && resource.data.audiencias.hasAny(request.auth.token.grupos));
         allow create: if (isOperador() || esOwnerEvento(eventoId))
                       && momentoValido(eventoId)
                       && request.resource.data.createdAt == request.time;
@@ -163,8 +241,9 @@ service cloud.firestore {
     function publicoFormaValida(d, eventoId) {
       return d.keys().hasOnly([
         'eventoId', 'slug', 'novios', 'fecha', 'lugar', 'mensajeInvitacion',
-        'portadaUrl', 'paleta', 'maxAcompanantesDefault', 'estado',
+        'portadaUrl', 'paleta', 'maxAcompanantesDefault', 'estado', 'modoAcceso',
       ])
+        && (!('modoAcceso' in d) || d.modoAcceso in ['publico', 'tokenUnico'])
         && d.eventoId == eventoId
         && d.estado in ['borrador', 'publicado', 'post_evento', 'archivado']
         && d.novios is map

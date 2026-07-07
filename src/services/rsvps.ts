@@ -4,10 +4,14 @@
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
+  updateDoc,
   type Timestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -58,4 +62,53 @@ export function escucharRsvps(
     },
     (err) => onError(err),
   );
+}
+
+// ---- ENLACE-2: RSVP del invitado con pase ----
+// Su confirmacion vive en el doc con id == invitadoId (una por llave). Puede
+// cambiar de opinion: si ya existe, se actualiza sin tocar createdAt (las
+// reglas lo exigen sellado).
+
+export async function leerRsvpDeInvitado(
+  eventoId: string,
+  invitadoId: string,
+): Promise<Rsvp | null> {
+  const snap = await getDoc(doc(db, 'eventos', eventoId, 'rsvps', invitadoId));
+  if (!snap.exists()) return null;
+  const raw = snap.data();
+  const ts = raw.createdAt as Timestamp | null;
+  return {
+    rsvpId: snap.id,
+    nombre: (raw.nombre as string) ?? '',
+    asistencia: (raw.asistencia as Rsvp['asistencia']) ?? 'confirmado',
+    numAcompanantes: (raw.numAcompanantes as number) ?? 0,
+    mensaje: raw.mensaje as string | undefined,
+    aceptoPolitica: (raw.aceptoPolitica as boolean) ?? false,
+    politicaVersion: (raw.politicaVersion as string) ?? '',
+    createdAt: ts ? ts.toDate() : null,
+  };
+}
+
+export async function confirmarComoInvitado(
+  eventoId: string,
+  invitadoId: string,
+  input: RsvpInput,
+  yaExiste: boolean,
+): Promise<void> {
+  const data: Record<string, unknown> = {
+    nombre: input.nombre.trim(),
+    asistencia: input.asistencia,
+    numAcompanantes: Math.trunc(input.numAcompanantes),
+    aceptoPolitica: input.aceptoPolitica,
+    politicaVersion: input.politicaVersion,
+  };
+  const mensaje = input.mensaje?.trim();
+  if (mensaje) data.mensaje = mensaje;
+
+  const ref = doc(db, 'eventos', eventoId, 'rsvps', invitadoId);
+  if (yaExiste) {
+    await updateDoc(ref, data);
+  } else {
+    await setDoc(ref, { ...data, createdAt: serverTimestamp() });
+  }
 }

@@ -60,6 +60,25 @@ export async function listarMomentos(eventoId: string): Promise<Momento[]> {
   return snap.docs.map(mapMomento);
 }
 
+// Invitado CON PASE: momentos publicos + los de sus grupos, mezclados en orden.
+// Dos consultas (Firestore no hace OR entre campos distintos) y merge local.
+export async function listarMomentosParaInvitado(
+  eventoId: string,
+  grupos: string[],
+): Promise<Momento[]> {
+  const publicos = await listarMomentosPublicos(eventoId);
+  if (grupos.length === 0) return publicos;
+  const snap = await getDocs(
+    query(
+      col(eventoId),
+      where('visibilidad', '==', 'grupos'),
+      where('audiencias', 'array-contains-any', grupos.slice(0, 10)),
+    ),
+  );
+  const propios = snap.docs.map(mapMomento);
+  return [...publicos, ...propios].sort((a, b) => a.orden - b.orden);
+}
+
 // Invitado (sin login): solo los momentos publicos, en orden.
 export async function listarMomentosPublicos(eventoId: string): Promise<Momento[]> {
   const snap = await getDocs(

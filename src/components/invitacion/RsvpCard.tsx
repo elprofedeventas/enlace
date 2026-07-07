@@ -6,12 +6,13 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarPlus, HeartHandshake, Minus, Plus } from 'lucide-react';
-import type { Asistencia, EventoPublico } from '../../types';
+import type { Asistencia, EventoPublico, SesionInvitado } from '../../types';
 import { Confeti } from './Ornamentos';
 import { descargarIcs } from './ics';
 
 interface Props {
   evento: EventoPublico;
+  invitado?: SesionInvitado | null;
   enviando: boolean;
   enviado: boolean;
   errorEnvio: string | null;
@@ -24,15 +25,15 @@ interface Props {
   }) => void;
 }
 
-export function RsvpCard({ evento, enviando, enviado, errorEnvio, onEnviar }: Props) {
-  const [nombre, setNombre] = useState('');
+export function RsvpCard({ evento, invitado, enviando, enviado, errorEnvio, onEnviar }: Props) {
+  const [nombre, setNombre] = useState(invitado?.nombre ?? '');
   const [asistencia, setAsistencia] = useState<Asistencia>('confirmado');
   const [acomp, setAcomp] = useState(0);
   const [mensaje, setMensaje] = useState('');
   const [acepto, setAcepto] = useState(false);
   const [tocado, setTocado] = useState(false);
 
-  const max = evento.maxAcompanantesDefault;
+  const max = invitado ? Math.max(0, invitado.admisiones - 1) : evento.maxAcompanantesDefault;
   const nombreValido = nombre.trim().length >= 2;
 
   function submit(e: FormEvent) {
@@ -94,7 +95,14 @@ export function RsvpCard({ evento, enviando, enviado, errorEnvio, onEnviar }: Pr
           </p>
         </div>
 
-        {/* Nombre */}
+        {/* Nombre: con llave viene puesto; sin llave se escribe */}
+        {invitado ? (
+          <p className="text-center text-sm text-[var(--enlace-text-soft)]">
+            Confirmas como{' '}
+            <span className="font-medium text-[var(--enlace-text)]">{invitado.nombre}</span>
+            {max > 0 && <> · hasta {max} {max === 1 ? 'acompañante' : 'acompañantes'}</>}
+          </p>
+        ) : (
         <div className="flex flex-col gap-1">
           <label htmlFor="inv-nombre" className="text-sm font-medium text-[var(--enlace-text-soft)]">
             Tu nombre
@@ -115,6 +123,7 @@ export function RsvpCard({ evento, enviando, enviado, errorEnvio, onEnviar }: Pr
             <p className="text-xs text-red-400">Escribe tu nombre para poder confirmarte.</p>
           )}
         </div>
+        )}
 
         {/* Asistencia: dos tarjetas tocables */}
         <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="¿Asistirás?">

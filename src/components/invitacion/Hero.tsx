@@ -7,7 +7,7 @@ import type { EventoPublico } from '../../types';
 import { Monograma } from './Ornamentos';
 import { fechaLarga, iniciales } from './tema';
 
-export function Hero({ evento }: { evento: EventoPublico }) {
+export function Hero({ evento, invitadoNombre }: { evento: EventoPublico; invitadoNombre?: string }) {
   const [iniA, iniB] = iniciales(evento.novios.personaA, evento.novios.personaB);
   const conPortada = Boolean(evento.portadaUrl);
 
@@ -40,6 +40,11 @@ export function Hero({ evento }: { evento: EventoPublico }) {
       <div className="inv-hero-entrada relative flex flex-col items-center gap-4">
         {!conPortada && <Monograma a={iniA} b={iniB} />}
 
+        {invitadoNombre && (
+          <p className="font-serif text-lg italic text-[var(--enlace-text-soft)]">
+            Hola, {invitadoNombre}
+          </p>
+        )}
         <p
           className="text-xs font-medium uppercase tracking-[0.35em]"
           style={{ color: 'var(--boda-acento)' }}

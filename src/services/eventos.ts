@@ -11,6 +11,8 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Evento, EventoPublico, ModoAcceso, Plan } from '../types';
@@ -52,6 +54,7 @@ function proyeccionPublica(evento: Evento): Omit<EventoPublico, never> {
     mensajeInvitacion: evento.mensajeInvitacion,
     maxAcompanantesDefault: evento.maxAcompanantesDefault,
     estado: evento.estado,
+    modoAcceso: evento.acceso.modo,
   };
   if (evento.portadaUrl) pub.portadaUrl = evento.portadaUrl;
   if (evento.paleta) pub.paleta = evento.paleta;
@@ -118,4 +121,20 @@ export async function getEvento(eventoId: string): Promise<Evento | null> {
 export async function getEventoPublico(slug: string): Promise<EventoPublico | null> {
   const snap = await getDoc(doc(db, 'publicos', slug));
   return snap.exists() ? (snap.data() as EventoPublico) : null;
+}
+
+// ---- ENLACE-2: modo de acceso y grupos de la boda ----
+
+// Cambia el modo de acceso ('publico' = RSVP abierto; 'tokenUnico' = por llave)
+// en el doc de gestion Y en la proyeccion publica, atomico.
+export async function setModoAcceso(eventoId: string, modo: ModoAcceso): Promise<void> {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'eventos', eventoId), { acceso: { modo } });
+  batch.update(doc(db, 'publicos', eventoId), { modoAcceso: modo });
+  await batch.commit();
+}
+
+// Actualiza el catalogo de grupos de acceso de la boda (doc privado).
+export async function setGrupos(eventoId: string, grupos: string[]): Promise<void> {
+  await updateDoc(doc(db, 'eventos', eventoId), { grupos });
 }

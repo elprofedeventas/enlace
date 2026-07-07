@@ -30,6 +30,35 @@ export interface Paleta {
   acento: string;
 }
 
+// ---- Invitados: la lista con llave unica (ENLACE-2) ----
+export type EstadoInvitado = 'activo' | 'revocado';
+
+// Invitado con llave: eventos/{eventoId}/invitados/{invitadoId}. PRIVADO
+// (solo operador/owners lo leen); el invitado entra por el portero, nunca
+// lee este doc. `admisiones` = personas totales que cubre su invitacion
+// (incluido el/ella): admisiones 3 = invitado + 2 acompanantes.
+export interface Invitado {
+  invitadoId: string;
+  eventoId: string;
+  nombre: string;
+  admisiones: number;
+  grupos: string[];
+  token: string; // la llave. Vive SOLO en este doc privado.
+  estado: EstadoInvitado;
+  createdAt: Date | null;
+}
+
+export type InvitadoInput = Omit<Invitado, 'invitadoId' | 'createdAt'>;
+
+// Sesion del invitado tras canjear su llave en el portero (claims del pase).
+export interface SesionInvitado {
+  eventoId: string;
+  invitadoId: string;
+  nombre: string;
+  admisiones: number;
+  grupos: string[];
+}
+
 export interface PlanRenovacion {
   recurrente: boolean;
   vence?: string; // ISO date
@@ -50,6 +79,8 @@ export interface Evento {
   plan: Plan;
   planRenovacion?: PlanRenovacion;
   acceso: { modo: ModoAcceso };
+  // Catalogo de grupos de acceso de la boda (p.ej. 'General', 'Bridal Shower').
+  grupos?: string[];
   maxAcompanantesDefault: number;
   estado: EstadoEvento;
   createdBy: string;
@@ -67,6 +98,8 @@ export interface EventoPublico {
   paleta?: Paleta;
   maxAcompanantesDefault: number;
   estado: EstadoEvento;
+  // Modo de acceso publicado: 'publico' (RSVP abierto) o 'tokenUnico' (por llave).
+  modoAcceso?: ModoAcceso;
 }
 
 // RSVP del invitado: eventos/{eventoId}/rsvps/{rsvpId}.
@@ -84,7 +117,7 @@ export interface Rsvp {
 export type RsvpInput = Omit<Rsvp, 'rsvpId' | 'createdAt'>;
 
 // ---- Momentos: la linea de tiempo de la boda (antes / el dia / despues) ----
-export type Visibilidad = 'publico' | 'privado';
+export type Visibilidad = 'publico' | 'privado' | 'grupos';
 export type EstadoMomento = 'planeado' | 'realizado';
 export type FaseMomento = 'antes' | 'dia' | 'despues';
 
@@ -100,7 +133,8 @@ export interface Momento {
   lugar?: string;
   descripcion?: string;
   orden: number;
-  visibilidad: Visibilidad; // publico = lo ve el invitado; privado = solo la pareja
+  visibilidad: Visibilidad; // publico = todos; privado = solo la pareja; grupos = por audiencia
+  audiencias?: string[]; // grupos que ven este momento (si visibilidad == 'grupos')
   estado: EstadoMomento;
   createdAt: Date | null;
 }

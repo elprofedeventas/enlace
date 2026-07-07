@@ -77,6 +77,16 @@ export function EventoDetalle() {
         </span>
       </Link>
 
+      <Link
+        to={`/eventos/${slug}/invitados`}
+        className="block rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface)] px-4 py-3 text-sm font-semibold text-[var(--enlace-text)] transition-colors hover:border-enlace-500"
+      >
+        Invitados y llaves &rarr;
+        <span className="block text-xs font-normal text-[var(--enlace-text-soft)]">
+          Lista con llave unica: links, QR, grupos y admisiones.
+        </span>
+      </Link>
+
       <div className="grid grid-cols-3 gap-2">
         <Card className="text-center">
           <p className="text-2xl font-bold text-enlace-500">{resumen.confirmados}</p>
