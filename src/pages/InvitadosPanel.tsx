@@ -8,6 +8,7 @@ import { Link, useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
   Copy,
+  FileUp,
   KeyRound,
   MessageCircle,
   Plus,
@@ -26,6 +27,7 @@ import {
   regenerarLlave,
   revocarLlave,
 } from '../services/invitados';
+import { ImportadorInvitados } from '../components/invitados/ImportadorInvitados';
 import { EstadoCarga, EstadoError, EstadoVacio } from '../components/ui';
 import type { Evento, Invitado } from '../types';
 
@@ -42,6 +44,7 @@ export function InvitadosPanel() {
   const [gruposNuevo, setGruposNuevo] = useState<string[]>([]);
   const [nuevoGrupo, setNuevoGrupo] = useState('');
   const [creando, setCreando] = useState(false);
+  const [mostrarImport, setMostrarImport] = useState(false);
 
   useEffect(() => {
     getEvento(slug)
@@ -178,9 +181,24 @@ export function InvitadosPanel() {
         </div>
       </section>
 
-      {/* Alta de invitado */}
+      {/* Importar lista desde Excel */}
       <section className="mt-4 rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface)] p-4">
-        <p className="text-sm font-medium text-[var(--enlace-text)]">Nuevo invitado</p>
+        <p className="text-sm font-medium text-[var(--enlace-text)]">Importar lista</p>
+        <p className="mt-0.5 text-xs text-[var(--enlace-text-soft)]">
+          Sube tu lista en Excel y creamos todos los invitados con su llave de una sola vez.
+        </p>
+        <button
+          type="button"
+          onClick={() => setMostrarImport(true)}
+          className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface-2)] px-4 text-sm font-semibold text-[var(--enlace-text)]"
+        >
+          <FileUp size={16} aria-hidden="true" /> Importar desde Excel
+        </button>
+      </section>
+
+      {/* Alta de invitado (uno por uno) */}
+      <section className="mt-4 rounded border border-[var(--enlace-border)] bg-[var(--enlace-surface)] p-4">
+        <p className="text-sm font-medium text-[var(--enlace-text)]">Agregar uno por uno</p>
         <div className="mt-3 flex flex-col gap-3">
           <input
             value={nombre}
@@ -349,6 +367,20 @@ export function InvitadosPanel() {
           ))}
         </ul>
       </section>
+
+      {mostrarImport && (
+        <ImportadorInvitados
+          slug={slug}
+          gruposExistentes={grupos}
+          onCerrar={() => setMostrarImport(false)}
+          onImportado={(n) => {
+            avisar(`${n} ${n === 1 ? 'invitado importado' : 'invitados importados'}`);
+            getEvento(slug)
+              .then(setEvento)
+              .catch(() => {});
+          }}
+        />
+      )}
 
       {aviso && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 rounded bg-[var(--enlace-surface-2)] px-4 py-2 text-sm text-[var(--enlace-text)] shadow-lg">

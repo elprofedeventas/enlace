@@ -16,6 +16,7 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
   type DocumentData,
   type QueryDocumentSnapshot,
   type Timestamp,
@@ -77,6 +78,35 @@ export async function crearInvitado(
     estado: 'activo',
     createdAt: serverTimestamp(),
   });
+}
+
+// Alta EN LOTE (import de Excel). Escribe en batches de 500 (limite duro de
+// Firestore); cada invitado nace con su propia llave y estado activo. Mismo
+// documento que crearInvitado: no cambia la forma ni las reglas. Devuelve
+// cuantos se crearon.
+export async function crearInvitadosEnLote(
+  eventoId: string,
+  filas: { nombre: string; admisiones: number; grupos: string[] }[],
+): Promise<number> {
+  const TAMANO_LOTE = 500;
+  let creados = 0;
+  for (let i = 0; i < filas.length; i += TAMANO_LOTE) {
+    const batch = writeBatch(db);
+    for (const fila of filas.slice(i, i + TAMANO_LOTE)) {
+      batch.set(doc(col(eventoId)), {
+        eventoId,
+        nombre: fila.nombre.trim(),
+        admisiones: Math.max(1, Math.min(21, Math.trunc(fila.admisiones))),
+        grupos: fila.grupos,
+        token: generarLlave(),
+        estado: 'activo',
+        createdAt: serverTimestamp(),
+      });
+      creados += 1;
+    }
+    await batch.commit();
+  }
+  return creados;
 }
 
 export async function actualizarInvitado(
